@@ -1,0 +1,164 @@
+#!/bin/bash
+# copyright by qianjun.gong
+# script version: 1.1.0
+# 【建议采用环境变量的方式修改配置，而不建议修改脚本内容】
+
+# 根据git远程仓库名称GIT_REMOTE_ENV获取git远程仓库地址
+# 根据gitlab的远程格式，获取项目组名称和项目名称
+# merge请求标题区git日志第一条
+# 20191230: 现在通过项目环境变量文件来配置环境信息，脚本升级更方便，并且支持多项目。【推荐将本脚本加入系统环境变量】
+
+set -e
+
+# 脚本初始化
+#========================================
+# 判断是否为git项目
+git status &> /dev/null || (echo "请在项目文件夹中执行脚本！" && exit 1)
+# 脚本缓存目录
+project_env_dir=${project_env_dir:-~/.project}
+# 获取项目组名称，组与子组之间采用下划线分隔
+git_remote_url=$(git remote -v | grep "(push)" | grep "^origin" | awk '{print $2}')
+project_name=$(echo $git_remote_url | awk -F '/' '{print$NF}' | sed -e 's/.git//g')
+project_group_name=$(echo $git_remote_url | grep -Eo '[:/]([^./]+/){1,}' | sed -e 's/^[:/]//' -e 's/\/$//')
+# 初始化脚本缓存目录
+[ ! -d "${project_env_dir}/${project_group_name/\//_}" ] && mkdir -p "${project_env_dir}/${project_group_name/\//_}"
+# 缓存文件
+cache_file=${project_env_dir}/${project_group_name/\//_}/$(basename ${0}).cache
+# 项目环境变量
+project_env_file=${project_env_dir}/${project_group_name/\//_}/$(basename ${0}).env
+# 加载项目环境变量
+[ -f "${project_env_file}" ] && source "${project_env_file}"
+#========================================
+
+if [ ! -f "${project_env_file}" -o -z "`cat "${project_env_file}" 2> /dev/null | grep "= merge ="`" ]; then
+  echo "未检测到脚本环境变量，请修改配置文件: ${project_env_file}"
+  cat >> "${project_env_file}" << EOF
+#============== merge ==============
+dev_branch=dev-latest
+uat_branch=release-latest
+prod_branch=master-latest
+PRIVATE_TOKEN=''
+GITLAB_URL='https://code.choerodon.com.cn'
+#============== merge ==============
+EOF
+  exit 1
+fi
+
+environment=$1
+assignee_name=$2  # null为不指定人
+title=$3
+
+API_URL=$GITLAB_URL/api/v4
+log=$(git log -1 --pretty=%B)
+
+### 校 验 ###
+[ -z "${title}" ] && title=$log
+[ -z "${environment}" ] && environment=dev
+[ -z "${PRIVATE_TOKEN}" ] && echo "认证TOKEN不能为空！" && exit 1
+### 校 验 ###
+
+sourceBranch=$(git branch | grep \* | cut -d ' ' -f2)
+case "$environment" in
+	"dev") targetBranch=${dev_branch} ;;
+	"uat") targetBranch=${uat_branch} ;;
+	"prod") targetBranch=${prod_branch} ;;
+	*) targetBranch=${environment} ;;
+esac
+		
+urlencode() {
+  local length="${#1}"
+  for (( i = 0; i < length; i++ )); do
+    local c="${1:i:1}"
+    case $c in
+      [a-zA-Z0-9.~_-]) echo -n "$c" ;;
+    *) echo -n "$c" | xxd -p -c1 | while read x;do echo -n "%$x";done
+  esac
+done
+}
+
+getUserId() {
+  echo -n $(curl --header \
+    "PRIVATE-TOKEN: ${PRIVATE_TOKEN}" \
+    $API_URL/users?search=${assignee_name} 2> /dev/null | grep -Eo '"id":[0-9]+' | head -1 | cut -d':' -f2)
+}
+
+getProjectId() {
+  echo -n $(curl --header \
+    "Private-Token: ${PRIVATE_TOKEN}" \
+    $API_URL/projects?search=${project_name} 2>/dev/null | grep -Eo '"id":[^{}]*"'${project_group_name}'/'${project_name}'"' | grep -Eo '"id":[0-9]+' | head -1 | cut -d':' -f2)
+}
+
+getBranchInfo() {
+  local result=$(curl --header \
+    "Private-Token: ${PRIVATE_TOKEN}" \
+    $API_URL/projects/$1/repository/branches/${targetBranch} 2> /dev/null | grep "404 Branch Not Found")
+  test -n "$result" && return 1 || return 0
+}
+
+echo -e "Get merge request info ... "
+
+projectId=$(getProjectId)
+
+[ -z "${projectId}" ] && echo "项目id获取失败！" && exit 1
+[ "${assignee_name}" = "null" -o -z "${assignee_name}" ] && assignee_id="" || assignee_id=$(getUserId)
+
+if ! getBranchInfo "$projectId"; then
+  echo "Target branch ${targetBranch} is not exists!"
+  exit 1
+fi
+
+# echo merge info
+echo "======= 配置信息 ======="
+cat << EOF
+projectId: $projectId
+sourceBranch: ${sourceBranch}
+targetBranch: ${targetBranch}
+assignee_id: ${assignee_id}
+title: ${title}
+remoteUrl: ${git_remote_url}
+EOF
+echo -n "======================"
+
+# create merge request
+createMR() {
+  title=$(urlencode "$title")
+  data="source_branch=$sourceBranch&target_branch=$targetBranch&assignee_id=$assignee_id&title=$title"
+
+  echo $(curl --header "PRIVATE-TOKEN: ${PRIVATE_TOKEN}" \
+    --data $data \
+    "$API_URL/projects/$projectId/merge_requests" 2>/dev/null)
+}
+
+echo -e "
+Creating merge request... "
+
+merge_request_res=$(createMR)
+merge_request_id=$(echo $merge_request_res | grep -Eo '"iid":[0-9]+' | head -1 | cut -d':' -f2)
+
+# Accept merge request
+if [ -n "$merge_request_id" ]; then
+  echo -e "Create merge request success! The merge_request_id is $merge_request_id"
+  echo -e "The merge request url is ${GITLAB_URL}/${project_group_name}/${project_name}/merge_requests/${merge_request_id}/diffs"
+  read -p "Accept this merge request? (y/n) " isConfirm
+
+  if [[ $isConfirm == "n" ]]; then
+    echo -e "Cancel accept merge request"
+    exit
+  fi
+  
+  merge_result=$(curl -X PUT --header "PRIVATE-TOKEN: ${PRIVATE_TOKEN}" \
+    "$API_URL/projects/$projectId/merge_requests/$merge_request_id/merge" \
+    2>/dev/null)
+  merge_result_error=$(echo "$merge_result" | grep -Eo '"merge_error":[^,}]+' | tail -1 | cut -d':' -f2)
+
+  if [ "$merge_result_error" = "null" ]; then
+    echo "Merge success!"
+  else 
+    echo $merge_result
+  fi
+  exit
+else 
+  echo -e "Create merge request Fail: $merge_request_res"
+fi
+
+echo -e "Click on the link below for more details: ${GITLAB_URL}/${project_group_name}/${project_name}/merge_requests"
