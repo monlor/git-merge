@@ -1,6 +1,5 @@
 #!/bin/bash
 # copyright by qianjun.gong
-# script version: 1.1.0
 # 【建议采用环境变量的方式修改配置，而不建议修改脚本内容】
 
 # 根据git远程仓库名称GIT_REMOTE_ENV获取git远程仓库地址
@@ -12,6 +11,7 @@ set -e
 
 # 脚本初始化
 #========================================
+version=v1.1.1
 # 判断是否为git项目
 git status &> /dev/null || (echo "请在项目文件夹中执行脚本！" && exit 1)
 # 脚本缓存目录
@@ -30,16 +30,31 @@ project_env_file=${project_env_dir}/${project_group_name/\//_}/$(basename ${0}).
 [ -f "${project_env_file}" ] && source "${project_env_file}"
 #========================================
 
-if [ ! -f "${project_env_file}" -o -z "`cat "${project_env_file}" 2> /dev/null | grep "= merge ="`" ]; then
-  echo "未检测到脚本环境变量，请修改配置文件: ${project_env_file}"
-  cat >> "${project_env_file}" << EOF
-#============== merge ==============
-dev_branch=dev-latest
-uat_branch=release-latest
-prod_branch=master-latest
-PRIVATE_TOKEN=''
-GITLAB_URL='https://code.choerodon.com.cn'
-#============== merge ==============
+[ "${version}" != "${created_version}" -a -f "${project_env_file}" ] && upgrading=true || upgrading=false
+
+if [ ! -f "${project_env_file}" -o "${upgrading}" = "true" ]; then
+
+  if [ "${upgrading}" = "true" ]; then
+    read -p "环境变量文件版本与程序版本不一致，是否自动更新？[y/n]: " res
+    echo "> 更新后建议检查环境变量文件是否有需要修改的地方！"
+    [ "${res}" != "y" ] && exit 1
+    cp -rf "${project_env_file}" "${project_env_file}.tmp"
+  else
+    echo "环境变量文件已生成: ${project_env_file}"
+    echo "请手动修改文件，再继续..."
+  fi
+
+  cat > "${project_env_file}" << EOF
+# 变量创建时，程序版本
+created_version=${version}
+# 定义环境分支名称
+dev_branch=${dev_branch:-dev-latest}
+uat_branch=${uat_branch:-release-latest}
+prod_branch=${prod_branch:-master-latest}
+# gitlab accessToken
+PRIVATE_TOKEN=${PRIVATE_TOKEN}
+# gitlab 地址
+GITLAB_URL=${GITLAB_URL:-https://code.choerodon.com.cn}
 EOF
   exit 1
 fi
