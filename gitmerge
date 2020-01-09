@@ -12,10 +12,10 @@ set -e
 # 脚本初始化
 #========================================
 version=v1.1.1
-# 判断是否为git项目
-git status &> /dev/null || (echo "请在项目文件夹中执行脚本！" && exit 1)
-# 脚本缓存目录
+# 脚本缓存目录，可通过配置用户或系统环境变量的方式修改
 project_env_dir=${project_env_dir:-~/.project}
+# 判断是否为git项目
+! git status &> /dev/null && echo "version: $version" && exit 0
 # 获取项目组名称，组与子组之间采用下划线分隔
 git_remote_url=$(git remote -v | grep "(push)" | grep "^origin" | awk '{print $2}')
 project_name=$(echo $git_remote_url | awk -F '/' '{print$NF}' | sed -e 's/.git//g')
@@ -36,7 +36,7 @@ if [ ! -f "${project_env_file}" -o "${upgrading}" = "true" ]; then
 
   if [ "${upgrading}" = "true" ]; then
     read -p "环境变量文件版本与程序版本不一致，是否自动更新？[y/n]: " res
-    echo "> 更新后建议检查环境变量文件是否有需要修改的地方！"
+    echo "环境变量文件已更新: ${project_env_file}"
     [ "${res}" != "y" ] && exit 1
     cp -rf "${project_env_file}" "${project_env_file}.tmp"
   else
