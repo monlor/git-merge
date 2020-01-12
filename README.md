@@ -16,7 +16,7 @@
 
 * 到[`latest release`](https://github.com/monlor/hcf-pack/releases/latest)下载`Source code`
 
-  ![](https://cdn.jsdelivr.net/gh/monlor/file/img/20200109111107.png)
+  ![](https://file.monlor.com/img/20200109111107.png)
 
 * 解压到`~/Document`
 
@@ -40,8 +40,8 @@
 
 #### 获取`PRIVATE_TOKEN`
 
-![](https://cdn.jsdelivr.net/gh/monlor/file/img/20200109110806.png)
+![](https://file.monlor.com/img/20200109110806.png)
 
-![](https://cdn.jsdelivr.net/gh/monlor/file/img/20200109110834.png)
+![](https://file.monlor.com/img/20200109110834.png)
 
-![](https://cdn.jsdelivr.net/gh/monlor/file/img/20200109110855.png)
+![](https://file.monlor.com/img/20200109110855.png)
